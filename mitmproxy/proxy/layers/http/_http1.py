@@ -1,4 +1,5 @@
 import abc
+import hashlib
 from typing import Callable, Optional, Union
 
 import h11
@@ -43,6 +44,7 @@ class Http1Connection(HttpConnection, metaclass=abc.ABCMeta):
     ReceiveProtocolError: type[Union[RequestProtocolError, ResponseProtocolError]]
     ReceiveData: type[Union[RequestData, ResponseData]]
     ReceiveEndOfMessage: type[Union[RequestEndOfMessage, ResponseEndOfMessage]]
+    sha1: hashlib.sha1
 
     def __init__(self, context: Context, conn: Connection):
         super().__init__(context, conn)
@@ -100,6 +102,20 @@ class Http1Connection(HttpConnection, metaclass=abc.ABCMeta):
             elif isinstance(h11_event, h11.Data):
                 data: bytes = bytes(h11_event.data)
                 if data:
+                    self.sha1.update(data)
+                    # todo: replace print with a hook
+                    print({
+                        'id': event.connection.id,
+                        'address':event.connection.address,
+                        'state':event.connection.state,
+                        'transport_protocol':event.connection.transport_protocol,
+                        'sockname':event.connection.sockname,
+                        'timestamp_start':event.connection.timestamp_start,
+                        'timestamp_tcp_setup':event.connection.timestamp_tcp_setup,
+                        'peername':event.connection.peername,
+                        'sha1': self.sha1.hexdigest(),
+                        'stream_id': self.stream_id,
+                    })
                     yield ReceiveHttp(self.ReceiveData(self.stream_id, data))
             elif isinstance(h11_event, h11.EndOfMessage):
                 assert self.request
@@ -411,6 +427,7 @@ class Http1Client(Http1Connection):
                 )
                 self.body_reader = make_body_reader(expected_size)
 
+                self.sha1 = hashlib.sha1() # initial sha1 before read-body
                 self.state = self.read_body
                 yield from self.state(event)
             else:
